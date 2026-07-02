@@ -2,7 +2,7 @@
 
 Finance content in your voice. Every week. In 60 seconds.
 
-**Live demo:** [finpilot.streamlit.app](https://finpilot.streamlit.app) *(deploy link — update after deploy)*
+**Live demo:** [tryfinpilot.streamlit.app](https://tryfinpilot.streamlit.app)
 
 ---
 
@@ -38,7 +38,7 @@ One topic → autonomous research → angle selection → 4 content formats. In 
 │                 │                                           │
 │                 ▼                                           │
 │   ┌─────────────────────────────────────┐                  │
-│   │  ANGLE SELECTION (Claude API)       │                  │
+│   │  ANGLE SELECTION (Groq API)         │                  │
 │   │  Input: voice profile + research    │                  │
 │   │  Output: selected angle + reasoning │                  │
 │   │          + rejected alternatives    │                  │
@@ -46,7 +46,7 @@ One topic → autonomous research → angle selection → 4 content formats. In 
 │                 │                                           │
 │                 ▼                                           │
 │   ┌─────────────────────────────────────┐                  │
-│   │  MULTI-FORMAT GENERATION (Claude)   │                  │
+│   │  MULTI-FORMAT GENERATION (Groq)     │                  │
 │   │  One API call → structured JSON     │                  │
 │   │                                     │                  │
 │   │  ┌──────────┐  ┌──────────────────┐ │                  │
@@ -59,10 +59,10 @@ One topic → autonomous research → angle selection → 4 content formats. In 
 │   │  └──────────┘  └──────────────────┘ │                  │
 │   └─────────────────────────────────────┘                  │
 │                                                             │
-│   Voice Profile (Claude, once per session)                  │
+│   Voice Profile (Groq, once per session)                    │
 │   ──────────────────────────────────────                    │
-│   Paste 3-5 past content → tone, structure,                 │
-│   vocabulary, audience type extracted                       │
+│   Paste 3-5 past content → opening pattern,                 │
+│   paragraph rhythm, transition style extracted              │
 │   → used as context in all 3 downstream calls               │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -74,7 +74,7 @@ One topic → autonomous research → angle selection → 4 content formats. In 
 | Layer | Tool | Why |
 |---|---|---|
 | Frontend | Streamlit | Fast to build, free hosting |
-| AI — generation & analysis | Claude API (claude-sonnet-4-6) | Best structured JSON output, fast |
+| AI — generation & analysis | Groq API (Llama 3.3 70B) | Free tier, fast, reliable JSON output |
 | AI — research | Tavily API | Built for AI research, real-time news |
 | State | Streamlit session_state | Spec demo — no database needed |
 | Deployment | Streamlit Community Cloud | Free, auto-deploys from GitHub |
@@ -92,7 +92,7 @@ finpilot/
 │   ├── analyzer.py             # select_angle(voice, research, topic) -> dict
 │   └── generator.py            # generate_content(voice, research, angle) -> dict
 ├── prompts/
-│   ├── voice_analysis.py       # Prompt: extract voice markers
+│   ├── voice_analysis.py       # Prompt: extract structural voice blueprint
 │   ├── angle_selection.py      # Prompt: select best angle + reasoning
 │   ├── content_generation.py   # Prompt: 4-format structured JSON output
 │   └── topic_suggestion.py     # Prompt: trending topics from research
@@ -108,16 +108,16 @@ finpilot/
 ## How to run
 
 ```bash
-git clone https://github.com/yourusername/finpilot
+git clone https://github.com/abnsrishik/finpilot
 cd finpilot
 pip install -r requirements.txt
 cp .env.example .env
-# Add your ANTHROPIC_API_KEY and TAVILY_API_KEY to .env
+# Add your GROQ_API_KEY and TAVILY_API_KEY to .env
 streamlit run app.py
 ```
 
 Get API keys:
-- Anthropic: https://console.anthropic.com
+- Groq: https://console.groq.com (free tier — no credit card)
 - Tavily: https://tavily.com (1,000 free searches/month)
 
 ---
@@ -125,22 +125,22 @@ Get API keys:
 ## How it works
 
 **Step 1 — Voice analysis**
-Paste 3–5 past content pieces. Claude extracts: sentence length, tone, vocabulary, opening style, data usage, unique phrases, audience type. Stored in session for all subsequent calls.
+Paste 3–5 past content pieces. The model extracts a structural blueprint: opening pattern (how the creator starts every piece), paragraph rhythm (short punchy vs. long build), transition style (how ideas connect), conclusion pattern (what they always leave the reader with). Stored in session for all subsequent calls.
 
 **Step 2 — Research**
 Tavily runs 3 targeted searches: broad, India-localized, data-focused. Results deduplicated. Key facts extracted. Source list compiled with titles + URLs.
 
 **Step 3 — Angle selection**
-Claude receives voice profile + research. Picks the best angle for THIS creator's specific audience. Returns: selected angle, reasoning (specific, not generic), rejected alternatives. This is the "I can't do this with ChatGPT" moment — the system EXPLAINS its reasoning.
+The model receives voice profile + research. Picks the best angle for THIS creator's specific audience. Returns: selected angle, reasoning (specific, not generic), rejected alternatives. This is the "I can't do this with ChatGPT" moment — the system EXPLAINS its reasoning.
 
 **Step 4 — Multi-format generation**
-One Claude API call with structured output. Returns JSON: newsletter (500–800w), LinkedIn post (single-sentence-line format), Twitter thread (5–7 tweets), email subject + preview. All voice-matched. All source-grounded.
+One API call with structured output. Returns JSON: newsletter (500–800w), LinkedIn post (single-sentence-line format), Twitter thread (5–7 tweets), email subject + preview. All voice-matched. All source-grounded.
 
 ---
 
 ## Cost
 
-~$0.06 per full content run. Negligible.
+~$0.02 per full content run on Groq free tier.
 
 ---
 
@@ -148,4 +148,4 @@ One Claude API call with structured output. Returns JSON: newsletter (500–800w
 
 Rishik — AI engineering student at SRM University (GPA 9.88), 16 shipped projects.
 
-[GitHub](https://github.com/yourusername) | [LinkedIn](https://linkedin.com/in/yourprofile)
+[GitHub](https://github.com/abnsrishik) | [LinkedIn](https://linkedin.com/in/yourprofile)
