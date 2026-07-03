@@ -40,8 +40,14 @@ import html as _html
 import streamlit.components.v1 as components
 
 def copy_button(label: str, text: str, key: str):
-    """Real one-click clipboard copy (navigator.clipboard) with a code-box fallback."""
-    payload = _html.escape(json.dumps(text))  # JSON-encode so quotes/newlines survive
+    """
+    One-click copy that works inside Streamlit's sandboxed component iframe.
+    Uses a hidden <textarea> + execCommand('copy') (works in iframes where
+    navigator.clipboard is permission-blocked), falling back to the clipboard
+    API if execCommand isn't available. Text is embedded as a JS string literal
+    via json.dumps — no HTML-escaping (that would corrupt it inside <script>).
+    """
+    payload = json.dumps(text)  # safe JS string literal: escapes quotes/newlines/backslashes
     components.html(
         f"""
         <button id="{key}" style="background:#00D4AA;color:#0E1117;border:none;
@@ -50,15 +56,32 @@ def copy_button(label: str, text: str, key: str):
         </button>
         <span id="{key}_ok" style="color:#00D4AA;margin-left:0.6rem;font-size:0.85rem;"></span>
         <script>
-        const btn = document.getElementById("{key}");
-        btn.addEventListener("click", async () => {{
-            try {{
-                await navigator.clipboard.writeText(JSON.parse("{payload}"));
-                document.getElementById("{key}_ok").innerText = "✓ Copied";
-            }} catch (e) {{
-                document.getElementById("{key}_ok").innerText = "Press Ctrl+C";
-            }}
-        }});
+        (function() {{
+            const text = {payload};
+            const ok = document.getElementById("{key}_ok");
+            document.getElementById("{key}").addEventListener("click", function() {{
+                // Primary: hidden textarea + execCommand — works in sandboxed iframes.
+                const ta = document.createElement("textarea");
+                ta.value = text;
+                ta.style.position = "fixed";
+                ta.style.left = "-9999px";
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                let done = false;
+                try {{ done = document.execCommand("copy"); }} catch (e) {{ done = false; }}
+                document.body.removeChild(ta);
+                if (done) {{ ok.innerText = "✓ Copied"; return; }}
+                // Fallback: clipboard API (works when not iframe-blocked).
+                if (navigator.clipboard) {{
+                    navigator.clipboard.writeText(text)
+                        .then(() => ok.innerText = "✓ Copied")
+                        .catch(() => ok.innerText = "Select the text and press Ctrl+C");
+                }} else {{
+                    ok.innerText = "Select the text and press Ctrl+C";
+                }}
+            }});
+        }})();
         </script>
         """,
         height=45,
