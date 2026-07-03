@@ -7,8 +7,7 @@ from core.research import research_topic, get_trending_topics
 from core.analyzer import select_angle
 from core.generator import generate_content
 from prompts.topic_suggestion import TOPIC_SUGGESTION_SYSTEM, TOPIC_SUGGESTION_USER
-from groq import Groq
-from utils.config import GROQ_API_KEY, GROQ_MODEL
+from utils.llm import call_json, LLMError
 
 # ─── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -35,6 +34,35 @@ st.markdown("""
 .compare-cell { background: #1A1F2E; border-radius: 8px; padding: 1rem; font-size: 0.9rem; }
 </style>
 """, unsafe_allow_html=True)
+
+# ─── One-click copy helper ─────────────────────────────────────────────────────
+import html as _html
+import streamlit.components.v1 as components
+
+def copy_button(label: str, text: str, key: str):
+    """Real one-click clipboard copy (navigator.clipboard) with a code-box fallback."""
+    payload = _html.escape(json.dumps(text))  # JSON-encode so quotes/newlines survive
+    components.html(
+        f"""
+        <button id="{key}" style="background:#00D4AA;color:#0E1117;border:none;
+            border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;font-size:0.9rem;">
+            {_html.escape(label)}
+        </button>
+        <span id="{key}_ok" style="color:#00D4AA;margin-left:0.6rem;font-size:0.85rem;"></span>
+        <script>
+        const btn = document.getElementById("{key}");
+        btn.addEventListener("click", async () => {{
+            try {{
+                await navigator.clipboard.writeText(JSON.parse("{payload}"));
+                document.getElementById("{key}_ok").innerText = "✓ Copied";
+            }} catch (e) {{
+                document.getElementById("{key}_ok").innerText = "Press Ctrl+C";
+            }}
+        }});
+        </script>
+        """,
+        height=45,
+    )
 
 # ─── Header ────────────────────────────────────────────────────────────────────
 st.markdown("## FinPilot")
@@ -123,29 +151,20 @@ if st.session_state.voice_profile:
         with st.spinner("Checking today's finance news..."):
             try:
                 trending = get_trending_topics()
-                groq_client = Groq(api_key=GROQ_API_KEY)
                 trending_text = "\n".join(
                     f"• {r['title']}: {r.get('content', '')[:150]}"
                     for r in trending["results"][:8]
                 )
-                resp = groq_client.chat.completions.create(
-                    model=GROQ_MODEL,
-                    messages=[
-                        {"role": "system", "content": TOPIC_SUGGESTION_SYSTEM},
-                        {"role": "user", "content": TOPIC_SUGGESTION_USER.format(
-                            voice_profile=json.dumps(st.session_state.voice_profile, indent=2),
-                            trending_research=trending_text,
-                        )},
-                    ],
-                    response_format={"type": "json_object"},
+                result = call_json(
+                    TOPIC_SUGGESTION_SYSTEM,
+                    TOPIC_SUGGESTION_USER.format(
+                        voice_profile=json.dumps(st.session_state.voice_profile, indent=2),
+                        trending_research=trending_text,
+                    ),
                     temperature=0.5,
+                    required_keys=["topics"],
                 )
-                raw = resp.choices[0].message.content.strip()
-                if raw.startswith("```"):
-                    raw = raw.split("```")[1]
-                    if raw.startswith("json"):
-                        raw = raw[4:]
-                st.session_state.topic_suggestions = json.loads(raw.strip()).get("topics", [])
+                st.session_state.topic_suggestions = result.get("topics", [])
             except Exception as e:
                 st.warning(f"Couldn't load suggestions: {e}")
 
@@ -198,11 +217,18 @@ if generate_btn and st.session_state.voice_profile and final_topic:
         # Research
         show_progress(["⏳ Reading today's finance news so you don't have to..."])
         research = research_topic(final_topic)
-        steps_done.append(
-            f"✅ **Read today's finance news** — "
-            f"scanned {research['source_count']} sources "
-            f"({', '.join(s['title'][:30] for s in research['sources'][:3])}...)"
-        )
+        if research.get("degraded"):
+            st.warning(
+                "Limited fresh news on this topic right now — generating from general "
+                "knowledge. Double-check any specific figures before publishing."
+            )
+            steps_done.append("⚠️ **Limited fresh news found** — writing from general knowledge")
+        else:
+            steps_done.append(
+                f"✅ **Read today's finance news** — "
+                f"scanned {research['source_count']} sources "
+                f"({', '.join(s['title'][:30] for s in research['sources'][:3])}...)"
+            )
         show_progress(steps_done + ["⏳ Choosing your angle..."])
 
         # Angle selection
@@ -228,6 +254,8 @@ if generate_btn and st.session_state.voice_profile and final_topic:
         st.session_state.content = content
         st.session_state.generation_time = elapsed
 
+    except LLMError as e:
+        st.error(str(e))
     except Exception as e:
         st.error(f"Something went wrong: {e}")
 
@@ -248,14 +276,14 @@ if st.session_state.content:
     with tab1:
         st.markdown(content["newsletter"])
         st.divider()
-        st.markdown("**Fact-checked against today's news — click to verify:**")
-        for i, s in enumerate(content["sources"], 1):
-            st.markdown(
-                f'<span class="source-link">{i}. <a href="{s["url"]}" target="_blank">{s["title"]}</a></span>',
-                unsafe_allow_html=True,
-            )
-        if st.button("Copy Newsletter", key="copy_nl"):
-            st.code(content["newsletter"], language=None)
+        if content["sources"]:
+            st.markdown("**Fact-checked against today's news — click to verify:**")
+            for i, s in enumerate(content["sources"], 1):
+                st.markdown(
+                    f'<span class="source-link">{i}. <a href="{s["url"]}" target="_blank">{s["title"]}</a></span>',
+                    unsafe_allow_html=True,
+                )
+        copy_button("Copy Newsletter", content["newsletter"], "copy_nl")
 
     # ── LinkedIn ──
     with tab2:
@@ -267,20 +295,16 @@ if st.session_state.content:
                 f'<span class="source-link">{i}. <a href="{s["url"]}" target="_blank">{s["title"]}</a></span>',
                 unsafe_allow_html=True,
             )
-        if st.button("Copy LinkedIn Post", key="copy_li"):
-            st.code(content["linkedin_post"], language=None)
+        copy_button("Copy LinkedIn Post", content["linkedin_post"], "copy_li")
 
     # ── Twitter ──
     with tab3:
-        thread = content["twitter_thread"]
-        if isinstance(thread, str):
-            thread = [t.strip() for t in thread.split("\n") if t.strip()]
+        thread = content["twitter_thread"]  # normalized to a list in generator
         for i, tweet in enumerate(thread, 1):
             st.markdown(f"**[{i}/{len(thread)}]** {tweet}")
             st.markdown("")
-        if st.button("Copy Thread", key="copy_tw"):
-            thread_text = "\n\n".join(f"[{i}] {t}" for i, t in enumerate(thread, 1))
-            st.code(thread_text, language=None)
+        thread_text = "\n\n".join(f"[{i}] {t}" for i, t in enumerate(thread, 1))
+        copy_button("Copy Thread", thread_text, "copy_tw")
 
     # ── Email ──
     with tab4:
@@ -288,11 +312,11 @@ if st.session_state.content:
         st.info(content["email_subject"])
         st.markdown(f"**Preview text:**")
         st.info(content["email_preview"])
-        if st.button("Copy Email Subject + Preview", key="copy_em"):
-            st.code(
-                f"Subject: {content['email_subject']}\nPreview: {content['email_preview']}",
-                language=None,
-            )
+        copy_button(
+            "Copy Email Subject + Preview",
+            f"Subject: {content['email_subject']}\nPreview: {content['email_preview']}",
+            "copy_em",
+        )
 
     # Download all
     all_content = f"""# FinPilot Output — {research['topic']}

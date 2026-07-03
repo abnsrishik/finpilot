@@ -1,9 +1,6 @@
 import json
-from groq import Groq
-from utils.config import GROQ_API_KEY, GROQ_MODEL
+from utils.llm import call_json
 from prompts.angle_selection import ANGLE_SELECTION_SYSTEM, ANGLE_SELECTION_USER
-
-client = Groq(api_key=GROQ_API_KEY)
 
 
 def select_angle(voice: dict, research: dict, topic: str) -> dict:
@@ -20,16 +17,12 @@ def select_angle(voice: dict, research: dict, topic: str) -> dict:
         key_facts=key_facts_str,
     )
 
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": ANGLE_SELECTION_SYSTEM},
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
+    return call_json(
+        ANGLE_SELECTION_SYSTEM,
+        prompt,
         temperature=0.4,
+        required_keys=["selected_angle", "reasoning"],
     )
-    return json.loads(response.choices[0].message.content)
 
 
 # ponytail: CLI test

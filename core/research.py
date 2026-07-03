@@ -1,4 +1,5 @@
-import json
+import re
+import time
 from tavily import TavilyClient
 from utils.config import TAVILY_API_KEY, TAVILY_SEARCH_DEPTH, TAVILY_MAX_RESULTS
 
@@ -14,6 +15,29 @@ def _build_queries(topic: str) -> list[str]:
     ]
 
 
+def _first_sentence(text: str) -> str:
+    """
+    First sentence without cutting on decimals/abbreviations (Rs. 500, U.S., Q3 2026.).
+    Split only on '. ' followed by a capital letter; fall back to a length cap.
+    """
+    text = text.strip()
+    m = re.search(r"\.\s+(?=[A-Z])", text)
+    sentence = text[: m.start() + 1] if m else text
+    return sentence[:200].strip()
+
+
+def _search_with_retry(query, **kwargs):
+    """One retry on transient Tavily failure before giving up on this query."""
+    for attempt in range(2):
+        try:
+            return client.search(query=query, **kwargs)
+        except Exception:
+            if attempt == 0:
+                time.sleep(1.0)
+            else:
+                return {"results": [], "answer": ""}
+
+
 def research_topic(topic: str) -> dict:
     """
     Run 3 Tavily searches, deduplicate, return structured research context.
@@ -25,8 +49,8 @@ def research_topic(topic: str) -> dict:
     best_answer = ""
 
     for query in queries:
-        resp = client.search(
-            query=query,
+        resp = _search_with_retry(
+            query,
             search_depth=TAVILY_SEARCH_DEPTH,
             max_results=TAVILY_MAX_RESULTS,
             include_answer=True,
@@ -45,9 +69,9 @@ def research_topic(topic: str) -> dict:
         for r in all_results
     ]
 
-    # Key facts: first sentence of each result snippet
+    # Key facts: first sentence of each result snippet (decimal/abbreviation-safe)
     key_facts = [
-        r.get("content", "").split(".")[0].strip() + "."
+        _first_sentence(r.get("content", ""))
         for r in all_results
         if r.get("content", "").strip()
     ][:8]  # cap at 8 facts
@@ -61,6 +85,8 @@ def research_topic(topic: str) -> dict:
         "key_facts": key_facts,
         "summary": summary,
         "source_count": len(sources),
+        # Degraded = no fresh sources found. UI warns + generation avoids inventing figures.
+        "degraded": len(sources) == 0,
     }
 
 

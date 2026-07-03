@@ -1,9 +1,5 @@
-import json
-from groq import Groq
-from utils.config import GROQ_API_KEY, GROQ_MODEL
+from utils.llm import call_json
 from prompts.content_generation import CONTENT_GENERATION_SYSTEM, CONTENT_GENERATION_USER
-
-client = Groq(api_key=GROQ_API_KEY)
 
 
 def _safe(s: str) -> str:
@@ -62,18 +58,26 @@ def generate_content(voice: dict, research: dict, angle: dict) -> dict:
         source_list_placeholder=_safe(source_list),
     )
 
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": CONTENT_GENERATION_SYSTEM},
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
+    # When research came back empty, tell the model not to fabricate specific figures.
+    if research.get("degraded"):
+        prompt += ("\n\n=== IMPORTANT ===\nNo fresh news sources were available for this topic. "
+                   "Write from general knowledge only. Do NOT invent specific numbers, dates, "
+                   "percentages, or quotes. Keep claims general and note where the reader should verify current data.")
+
+    content = call_json(
+        CONTENT_GENERATION_SYSTEM,
+        prompt,
         temperature=0.7,
+        required_keys=["newsletter", "linkedin_post", "twitter_thread",
+                       "email_subject", "email_preview"],
         max_tokens=4096,
     )
 
-    content = json.loads(response.choices[0].message.content)
+    # Normalize twitter_thread to a list once, so every consumer (UI + download) is consistent.
+    thread = content["twitter_thread"]
+    if isinstance(thread, str):
+        content["twitter_thread"] = [t.strip() for t in thread.split("\n") if t.strip()]
+
     content["sources"] = research["sources"][:6]
     return content
 
